@@ -21,23 +21,57 @@ open Microsoft.IdentityModel.Logging
 // ---------------------------------
 
 [<CLIMutable>]
-type User =
+type UnregisteredUser =
     {
-        Username : string
+        Email : string
         Password : string
+        Username : string
+    }
+
+[<CLIMutable>]
+type AuthorizedUser =
+    {
+        Email : string
+        Username : string
+        Bio : string
+        Image : string
         Token : string
     }
 
 [<CLIMutable>]
-type LoginAttempt =
+type UnauthorizedUser =
     {
-        Username : string
+        Email : string
         Password : string
     }
 
+[<CLIMutable>]
+type RegisterRequest =
+    {
+        User : UnregisteredUser
+    }
+
+[<CLIMutable>]
+type AuthorizedResponse =
+    {
+        User : AuthorizedUser
+    }
+
+[<CLIMutable>]
+type UnauthorizedRequest =
+    {
+        User : UnauthorizedUser
+    }
+
+//[<CLIMutable>]
+//type LoginRequest =
+//    {
+//        User : 
+//    }
+
 type SimpleClaim = { Type: string; Value: string }
 
-let mutable users = List.empty<User>
+let mutable users = List.empty<UnregisteredUser>
 
 let secret = "testkey_this_needs_to_be_big_or_else_an_error_occurs"
 
@@ -56,7 +90,26 @@ let showClaims =
         let simpleClaims = Seq.map (fun (i : Claim) -> {Type = i.Type; Value = i.Value}) claims
         json simpleClaims next ctx
 
-let compareUsername (user : User ) (username : string) = user.Username = username
+let getLoggedInUserHandle =
+    fun (next : HttpFunc) (ctx : HttpContext) ->
+        let user = ctx.User
+        
+        let username = user.Identity.Name
+        
+        //probably should move this match to email, something more unique than username
+        let matchUsername (username : string) (user : UnregisteredUser) =
+            username = user.Username
+        
+        let matchingUser = 
+            users
+            |> List.find (fun x -> matchUsername username x)
+            
+        let authorizedUser = { Email = matchingUser.Email; Username = matchingUser.Username; Bio = ""; Image = ""; Token = "" } //how to get current token
+        let response : AuthorizedResponse = { User = authorizedUser }
+        
+        json response next ctx
+
+let compareUsername (user : UnregisteredUser ) (username : string) = user.Username = username
 
 let generateToken username =
     let tokenHandler = new JwtSecurityTokenHandler()
@@ -65,49 +118,52 @@ let generateToken username =
     let claim = new Claim(ClaimTypes.Name, username)
     let claims = [| claim |]
     tokenDescriptor.Subject <- new ClaimsIdentity(claims)
-    tokenDescriptor.Expires <- System.Nullable(DateTime.UtcNow.AddSeconds(30.0))
+    tokenDescriptor.Expires <- System.Nullable(DateTime.UtcNow.AddMinutes(2.0))
     tokenDescriptor.SigningCredentials <- new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
     let token = tokenHandler.CreateToken(tokenDescriptor)
     tokenHandler.WriteToken(token)
 
-let addUser =
-    fun (next : HttpFunc) (ctx : HttpContext) ->
+let RegisterUserHandle =
+    fun (next : HttpFunc) (ctx : HttpContext) ->    
         task {
-            let! user = ctx.BindJsonAsync<User>();
+            let! request = ctx.BindJsonAsync<RegisterRequest>()
+            let user = request.User
 
             let newUsers = (user :: users)
             users <- newUsers
             let token = generateToken user.Username
-            return! Successful.OK token next ctx
+
+            let authorizedUser = { Email = user.Email; Username = user.Username; Bio = ""; Image = ""; Token = token }
+            let response : AuthorizedResponse = { User = authorizedUser }
+            return! Successful.OK response next ctx
         }
 
 
-let authenticateUser =
+let AuthenticateUserHandle =
     fun (next : HttpFunc) (ctx : HttpContext) ->
         task {
-            let! loginAttempt = ctx.BindJsonAsync<LoginAttempt>();
+            let! request = ctx.BindJsonAsync<UnauthorizedRequest>();
+            let user = request.User
 
-            let usernameAndPasswordMatch loginAttempt (user : User) =
-                loginAttempt.Username = user.Username && loginAttempt.Password = user.Password
+            let usernameAndPasswordMatch (loginAttempt : UnauthorizedUser) (user : UnregisteredUser) =
+                loginAttempt.Email = user.Email && loginAttempt.Password = user.Password
             
             let matchingUser = 
                 users
-                |> List.tryFind (fun x -> usernameAndPasswordMatch loginAttempt x)
+                |> List.tryFind (fun x -> usernameAndPasswordMatch user x)
 
             match matchingUser with 
-            | Some x -> 
-                let token = generateToken x.Username
-                return! Successful.OK token next ctx
+            | Some u -> 
+                let token = generateToken u.Username
+                let authorizedUser = { Email = u.Email; Username = u.Username; Bio = ""; Image = ""; Token = token }
+                let response : AuthorizedResponse = { User = authorizedUser }
+                return! Successful.OK response next ctx
             | None -> return! RequestErrors.UNAUTHORIZED "Basic" "Some Realm" "Unauthorized" next ctx
         }
 
 let getUsers () : HttpHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->
          Successful.OK users next ctx
-
-//let getUsers () : HttpHandler =
-//    json users
-//let getUsers = Successful.OK users
 
 let webApp =
     choose [
@@ -116,12 +172,12 @@ let webApp =
                 route "/" >=> text "Public endpoint."
                 route "/greet" >=> authorize >=> greet
                 route "/claims" >=> authorize >=> showClaims
-                route "/users" >=> authorize >=> getUsers()
+                route "/user" >=> authorize >=> getLoggedInUserHandle
             ]
         POST >=>
             choose [
-                route "/users/add" >=> addUser
-                route "/users/authenticate" >=> authenticateUser
+                route "/users" >=> RegisterUserHandle
+                route "/users/login" >=> AuthenticateUserHandle
             ]
         setStatusCode 404 >=> text "Not Found" ]
 
