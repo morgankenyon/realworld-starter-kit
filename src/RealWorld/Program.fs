@@ -15,59 +15,11 @@ open System.Text
 open System.Collections.Generic
 open System.IdentityModel.Tokens.Jwt
 open Microsoft.IdentityModel.Logging
+open Models
 
 // ---------------------------------
 // Web app
 // ---------------------------------
-
-[<CLIMutable>]
-type UnregisteredUser =
-    {
-        Email : string
-        Password : string
-        Username : string
-    }
-
-[<CLIMutable>]
-type AuthorizedUser =
-    {
-        Email : string
-        Username : string
-        Bio : string
-        Image : string
-        Token : string
-    }
-
-[<CLIMutable>]
-type UnauthorizedUser =
-    {
-        Email : string
-        Password : string
-    }
-
-[<CLIMutable>]
-type RegisterRequest =
-    {
-        User : UnregisteredUser
-    }
-
-[<CLIMutable>]
-type AuthorizedResponse =
-    {
-        User : AuthorizedUser
-    }
-
-[<CLIMutable>]
-type UnauthorizedRequest =
-    {
-        User : UnauthorizedUser
-    }
-
-//[<CLIMutable>]
-//type LoginRequest =
-//    {
-//        User : 
-//    }
 
 type SimpleClaim = { Type: string; Value: string }
 
@@ -94,28 +46,27 @@ let getLoggedInUserHandle =
     fun (next : HttpFunc) (ctx : HttpContext) ->
         let user = ctx.User
         
-        let username = user.Identity.Name
+        let email = user.Identity.Name
         
-        //probably should move this match to email, something more unique than username
-        let matchUsername (username : string) (user : UnregisteredUser) =
-            username = user.Username
+        let matchEmail (email : string) (user : UnregisteredUser) =
+            email = user.Email
         
         let matchingUser = 
             users
-            |> List.find (fun x -> matchUsername username x)
+            |> List.find (fun x -> matchEmail email x)
             
-        let authorizedUser = { Email = matchingUser.Email; Username = matchingUser.Username; Bio = ""; Image = ""; Token = "" } //how to get current token
+        let authorizedUser = { Email = matchingUser.Email; Username = matchingUser.Username; Bio = ""; Image = ""; Token = "" }
         let response : AuthorizedResponse = { User = authorizedUser }
         
         json response next ctx
 
 let compareUsername (user : UnregisteredUser ) (username : string) = user.Username = username
 
-let generateToken username =
+let generateToken email =
     let tokenHandler = new JwtSecurityTokenHandler()
     let key = Encoding.ASCII.GetBytes(secret)
     let mutable tokenDescriptor = new SecurityTokenDescriptor()
-    let claim = new Claim(ClaimTypes.Name, username)
+    let claim = new Claim(ClaimTypes.Name, email)
     let claims = [| claim |]
     tokenDescriptor.Subject <- new ClaimsIdentity(claims)
     tokenDescriptor.Expires <- System.Nullable(DateTime.UtcNow.AddMinutes(2.0))
@@ -129,9 +80,8 @@ let RegisterUserHandle =
             let! request = ctx.BindJsonAsync<RegisterRequest>()
             let user = request.User
 
-            let newUsers = (user :: users)
-            users <- newUsers
-            let token = generateToken user.Username
+            let! _ = Db.insertUser user
+            let token = generateToken user.Email
 
             let authorizedUser = { Email = user.Email; Username = user.Username; Bio = ""; Image = ""; Token = token }
             let response : AuthorizedResponse = { User = authorizedUser }
@@ -145,20 +95,25 @@ let AuthenticateUserHandle =
             let! request = ctx.BindJsonAsync<UnauthorizedRequest>();
             let user = request.User
 
-            let usernameAndPasswordMatch (loginAttempt : UnauthorizedUser) (user : UnregisteredUser) =
+            let emailAndPasswordMatch (loginAttempt : UnauthorizedUser) (user : UnregisteredUser) =
                 loginAttempt.Email = user.Email && loginAttempt.Password = user.Password
             
-            let matchingUser = 
-                users
-                |> List.tryFind (fun x -> usernameAndPasswordMatch user x)
+            let! dbUser = Db.selectUser user.Email user.Password
+            //let matchingUser = 
+            //    users
+            //    |> List.tryFind (fun x -> emailAndPasswordMatch user x)
 
-            match matchingUser with 
-            | Some u -> 
-                let token = generateToken u.Username
-                let authorizedUser = { Email = u.Email; Username = u.Username; Bio = ""; Image = ""; Token = token }
-                let response : AuthorizedResponse = { User = authorizedUser }
-                return! Successful.OK response next ctx
-            | None -> return! RequestErrors.UNAUTHORIZED "Basic" "Some Realm" "Unauthorized" next ctx
+            let token = generateToken dbUser.Email
+            let authorizedUser = { Email = dbUser.Email; Username = dbUser.Username; Bio = dbUser.Bio; Image = dbUser.Image; Token = token }
+            let response : AuthorizedResponse = { User = authorizedUser }
+            return! Successful.OK response next ctx
+            //match matchingUser with 
+            //| Some u -> 
+            //    let token = generateToken u.Email
+            //    let authorizedUser = { Email = u.Email; Username = u.Username; Bio = ""; Image = ""; Token = token }
+            //    let response : AuthorizedResponse = { User = authorizedUser }
+            //    return! Successful.OK response next ctx
+            //| None -> return! RequestErrors.UNAUTHORIZED "Basic" "Some Realm" "Unauthorized" next ctx
         }
 
 let getUsers () : HttpHandler =

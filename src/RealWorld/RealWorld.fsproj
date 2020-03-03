@@ -6,13 +6,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Models.fs" />
+    <Compile Include="Db.fs" />
     <Compile Include="Program.fs" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Dapper.FSharp" Version="1.3.0" />
     <PackageReference Include="Giraffe" Version="4.0.1" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="3.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="1.1.1" />
     <PackageReference Include="TaskBuilder.fs" Version="2.1.0" />
   </ItemGroup>
 
