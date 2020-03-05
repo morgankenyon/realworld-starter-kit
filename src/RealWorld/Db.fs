@@ -9,6 +9,7 @@ open System
 open FSharp.Control.Tasks.V2
 open System.Linq
 
+//needs to come from some config place
 let connStr = "Data Source=LAPTOP-M5JK4R1J;Initial Catalog=RealWorld;Integrated Security=True"
 
 
@@ -18,7 +19,7 @@ type User =
         Id : int
         Email : string
         Username : string
-        Password : string //needs to be hashed
+        Password : string //needs to be hashed, potentially salted
         Bio : string
         Image : string
         Created : DateTime
@@ -52,9 +53,20 @@ let selectUser (email : string) (password : string) =
         let! dbUsers = selectStmt |> conn.SelectAsync<User>
 
         
-        //let firstUser = dbUsers.First()
+        return dbUsers.First() //do some mapping
+    }
 
-        //return { Email = firstUser.Email; Username = firstUser.Username; Bio = firstUser.Bio; Image = firstUser.Image }
+let selectUserByEmail (email : string) =
+    task {
+        use conn : IDbConnection = new SqlConnection(connStr) :> IDbConnection
+        conn.Open()
+
+        let selectStmt = select {
+            table "Users"
+            where (eq "Email" email)
+        }
+
+        let! dbUsers = selectStmt |> conn.SelectAsync<User>
 
         
         return dbUsers.First() //do some mapping

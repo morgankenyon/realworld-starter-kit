@@ -42,23 +42,7 @@ let showClaims =
         let simpleClaims = Seq.map (fun (i : Claim) -> {Type = i.Type; Value = i.Value}) claims
         json simpleClaims next ctx
 
-let getLoggedInUserHandle =
-    fun (next : HttpFunc) (ctx : HttpContext) ->
-        let user = ctx.User
-        
-        let email = user.Identity.Name
-        
-        let matchEmail (email : string) (user : UnregisteredUser) =
-            email = user.Email
-        
-        let matchingUser = 
-            users
-            |> List.find (fun x -> matchEmail email x)
-            
-        let authorizedUser = { Email = matchingUser.Email; Username = matchingUser.Username; Bio = ""; Image = ""; Token = "" }
-        let response : AuthorizedResponse = { User = authorizedUser }
-        
-        json response next ctx
+
 
 let compareUsername (user : UnregisteredUser ) (username : string) = user.Username = username
 
@@ -74,10 +58,10 @@ let generateToken email =
     let token = tokenHandler.CreateToken(tokenDescriptor)
     tokenHandler.WriteToken(token)
 
-let RegisterUserHandle =
+let RegisterUserHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->    
         task {
-            let! request = ctx.BindJsonAsync<RegisterRequest>()
+            let! request = ctx.BindJsonAsync<UserRequest<UnregisteredUser>>()
             let user = request.User
 
             let! _ = Db.insertUser user
@@ -88,32 +72,42 @@ let RegisterUserHandle =
             return! Successful.OK response next ctx
         }
 
-
-let AuthenticateUserHandle =
+let AuthenticateUserHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->
         task {
-            let! request = ctx.BindJsonAsync<UnauthorizedRequest>();
+            let! request = ctx.BindJsonAsync<UserRequest<UnauthorizedUser>>();
             let user = request.User
-
-            let emailAndPasswordMatch (loginAttempt : UnauthorizedUser) (user : UnregisteredUser) =
-                loginAttempt.Email = user.Email && loginAttempt.Password = user.Password
             
             let! dbUser = Db.selectUser user.Email user.Password
-            //let matchingUser = 
-            //    users
-            //    |> List.tryFind (fun x -> emailAndPasswordMatch user x)
 
             let token = generateToken dbUser.Email
             let authorizedUser = { Email = dbUser.Email; Username = dbUser.Username; Bio = dbUser.Bio; Image = dbUser.Image; Token = token }
             let response : AuthorizedResponse = { User = authorizedUser }
             return! Successful.OK response next ctx
-            //match matchingUser with 
-            //| Some u -> 
-            //    let token = generateToken u.Email
-            //    let authorizedUser = { Email = u.Email; Username = u.Username; Bio = ""; Image = ""; Token = token }
-            //    let response : AuthorizedResponse = { User = authorizedUser }
-            //    return! Successful.OK response next ctx
-            //| None -> return! RequestErrors.UNAUTHORIZED "Basic" "Some Realm" "Unauthorized" next ctx
+        }
+
+let GetLoggedInUserHandler =
+    fun (next : HttpFunc) (ctx : HttpContext) ->
+        task {
+            let user = ctx.User
+        
+            let email = user.Identity.Name
+
+            let! dbUser = Db.selectUserByEmail email
+            
+            let authorizedUser = { Email = dbUser.Email; Username = dbUser.Username; Bio = dbUser.Bio; Image = dbUser.Image; Token = "" }
+            let response : AuthorizedResponse = { User = authorizedUser }
+        
+            return! Successful.OK response next ctx
+        }
+
+let UpdateUserHandler =
+    fun (next : HttpFunc) (ctx : HttpContext) ->
+        task {
+            let! request = ctx.BindJsonAsync<UserRequest<EmailUser>>();
+            let user = request.User
+
+            let! 
         }
 
 let getUsers () : HttpHandler =
@@ -127,12 +121,16 @@ let webApp =
                 route "/" >=> text "Public endpoint."
                 route "/greet" >=> authorize >=> greet
                 route "/claims" >=> authorize >=> showClaims
-                route "/user" >=> authorize >=> getLoggedInUserHandle
+                route "/user" >=> authorize >=> GetLoggedInUserHandler
             ]
         POST >=>
             choose [
-                route "/users" >=> RegisterUserHandle
-                route "/users/login" >=> AuthenticateUserHandle
+                route "/users" >=> RegisterUserHandler
+                route "/users/login" >=> AuthenticateUserHandler
+            ]
+        PUT >=>
+            choose [
+                route "/users" >=> UpdateUserHandler
             ]
         setStatusCode 404 >=> text "Not Found" ]
 

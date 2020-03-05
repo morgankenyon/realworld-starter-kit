@@ -27,6 +27,12 @@ type UnauthorizedUser =
     }
 
 [<CLIMutable>]
+type EmailUser =
+    {
+        Email : string
+    }
+
+[<CLIMutable>]
 type RegisterRequest =
     {
         User : UnregisteredUser
@@ -42,4 +48,10 @@ type AuthorizedResponse =
 type UnauthorizedRequest =
     {
         User : UnauthorizedUser
+    }
+
+[<CLIMutable>]
+type UserRequest<'T> =
+    {
+        User : 'T
     }
