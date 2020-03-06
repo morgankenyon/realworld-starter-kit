@@ -64,10 +64,10 @@ let RegisterUserHandler =
             let! request = ctx.BindJsonAsync<UserRequest<UnregisteredUser>>()
             let user = request.User
 
-            let! _ = Db.insertUser user
-            let token = generateToken user.Email
+            let! authorizedUser =
+                Db.insertUser user
+                |> Domain.RegisterUser user generateToken
 
-            let authorizedUser = { Email = user.Email; Username = user.Username; Bio = ""; Image = ""; Token = token }
             let response : AuthorizedResponse = { User = authorizedUser }
             return! Successful.OK response next ctx
         }
@@ -78,10 +78,10 @@ let AuthenticateUserHandler =
             let! request = ctx.BindJsonAsync<UserRequest<UnauthorizedUser>>();
             let user = request.User
             
-            let! dbUser = Db.selectUser user.Email user.Password
-
-            let token = generateToken dbUser.Email
-            let authorizedUser = { Email = dbUser.Email; Username = dbUser.Username; Bio = dbUser.Bio; Image = dbUser.Image; Token = token }
+            let! authorizedUser =
+                Db.selectUser user.Email user.Password
+                |> Domain.AuthenticateUser generateToken
+            
             let response : AuthorizedResponse = { User = authorizedUser }
             return! Successful.OK response next ctx
         }
@@ -90,25 +90,24 @@ let GetLoggedInUserHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->
         task {
             let user = ctx.User
-        
-            let email = user.Identity.Name
 
-            let! dbUser = Db.selectUserByEmail email
-            
-            let authorizedUser = { Email = dbUser.Email; Username = dbUser.Username; Bio = dbUser.Bio; Image = dbUser.Image; Token = "" }
+            let! authorizedUser =
+                Db.selectUserByEmail user.Identity.Name
+                |> Domain.GetLoggedInUser
+
             let response : AuthorizedResponse = { User = authorizedUser }
         
             return! Successful.OK response next ctx
         }
 
-let UpdateUserHandler =
-    fun (next : HttpFunc) (ctx : HttpContext) ->
-        task {
-            let! request = ctx.BindJsonAsync<UserRequest<EmailUser>>();
-            let user = request.User
+//let UpdateUserHandler =
+//    fun (next : HttpFunc) (ctx : HttpContext) ->
+//        task {
+//            let! request = ctx.BindJsonAsync<UserRequest<EmailUser>>();
+//            let user = request.User
 
-            let! 
-        }
+//            let! 
+//        }
 
 let getUsers () : HttpHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->
@@ -128,10 +127,10 @@ let webApp =
                 route "/users" >=> RegisterUserHandler
                 route "/users/login" >=> AuthenticateUserHandler
             ]
-        PUT >=>
-            choose [
-                route "/users" >=> UpdateUserHandler
-            ]
+        //PUT >=>
+        //    choose [
+        //        route "/users" >=> UpdateUserHandler
+        //    ]
         setStatusCode 404 >=> text "Not Found" ]
 
 // ---------------------------------
