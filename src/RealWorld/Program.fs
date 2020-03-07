@@ -16,6 +16,7 @@ open System.Collections.Generic
 open System.IdentityModel.Tokens.Jwt
 open Microsoft.IdentityModel.Logging
 open Models
+open System.Threading.Tasks
 
 // ---------------------------------
 // Web app
@@ -59,46 +60,69 @@ let generateToken email =
     tokenHandler.WriteToken(token)
 
 let RegisterUserHandler =
-    fun (next : HttpFunc) (ctx : HttpContext) ->    
+    fun (insertUser : UnregisteredUser -> Task<Result<int, string>>) (registerUser : UnregisteredUser -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->    
         task {
             let! request = ctx.BindJsonAsync<UserRequest<UnregisteredUser>>()
             let user = request.User
 
-            let! authorizedUser =
-                Db.insertUser user
-                |> Domain.RegisterUser user generateToken
-
-            let response : AuthorizedResponse = { User = authorizedUser }
-            return! Successful.OK response next ctx
+            let! insertUserResult = insertUser user
+            
+            match insertUserResult with
+            | Ok u ->
+                let authorizedUser = registerUser user
+                let response : AuthorizedResponse = { User = authorizedUser }
+                return! Successful.OK response next ctx
+            | Error msg ->
+                let response : ErrorResponse = { Message = msg }
+                return! ServerErrors.INTERNAL_ERROR response next ctx
         }
 
+let RegisterUserHandlerBuilder =
+    let insertUser = Db.insertUser
+    let registerUser = Domain.RegisterUser generateToken
+
+    RegisterUserHandler insertUser registerUser
+
+
+
 let AuthenticateUserHandler =
-    fun (next : HttpFunc) (ctx : HttpContext) ->
+    fun (selectUser : string -> string -> Task<Db.User>) (authenticateUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
         task {
             let! request = ctx.BindJsonAsync<UserRequest<UnauthorizedUser>>();
             let user = request.User
             
-            let! authorizedUser =
-                Db.selectUser user.Email user.Password
-                |> Domain.AuthenticateUser generateToken
+            let! user = selectUser user.Email user.Password
+            let authorizedUser = Domain.AuthenticateUser generateToken user
             
             let response : AuthorizedResponse = { User = authorizedUser }
             return! Successful.OK response next ctx
         }
 
+let AuthenticateUserHandlerBuilder =
+    let selectUser = Db.selectUser
+    let authenticateUser = Domain.AuthenticateUser generateToken
+
+    AuthenticateUserHandler selectUser authenticateUser
+
 let GetLoggedInUserHandler =
-    fun (next : HttpFunc) (ctx : HttpContext) ->
+    fun (selectUser : string -> Task<Db.User>) (buildAuthorizedUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
         task {
             let user = ctx.User
 
-            let! authorizedUser =
-                Db.selectUserByEmail user.Identity.Name
-                |> Domain.GetLoggedInUser
+            let! loggedInUser = selectUser user.Identity.Name
+            let authorizedUser = buildAuthorizedUser loggedInUser
 
             let response : AuthorizedResponse = { User = authorizedUser }
         
             return! Successful.OK response next ctx
         }
+
+let GetLoggedInUserHandlerBuilder =
+    let dbSelect = Db.selectUserByEmail
+    let buildAuthorizedUser = Domain.GetLoggedInUser //terrible name
+
+    GetLoggedInUserHandler dbSelect buildAuthorizedUser
+
 
 //let UpdateUserHandler =
 //    fun (next : HttpFunc) (ctx : HttpContext) ->
@@ -120,12 +144,12 @@ let webApp =
                 route "/" >=> text "Public endpoint."
                 route "/greet" >=> authorize >=> greet
                 route "/claims" >=> authorize >=> showClaims
-                route "/user" >=> authorize >=> GetLoggedInUserHandler
+                route "/user" >=> authorize >=> GetLoggedInUserHandlerBuilder
             ]
         POST >=>
             choose [
-                route "/users" >=> RegisterUserHandler
-                route "/users/login" >=> AuthenticateUserHandler
+                route "/users" >=> RegisterUserHandlerBuilder
+                route "/users/login" >=> AuthenticateUserHandlerBuilder
             ]
         //PUT >=>
         //    choose [

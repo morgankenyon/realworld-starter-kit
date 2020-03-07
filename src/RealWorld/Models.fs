@@ -55,3 +55,9 @@ type UserRequest<'T> =
     {
         User : 'T
     }
+
+[<CLIMutable>]
+type ErrorResponse =
+    {
+        Message : string
+    }

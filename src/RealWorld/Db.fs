@@ -36,8 +36,12 @@ let insertUser (user : UnregisteredUser) =
             value {| Email = user.Email; Username = user.Email; Password = user.Password; Bio = ""; Image = ""; Created = DateTime.UtcNow; Updated = DateTime.UtcNow |}
         } 
 
-        let! insertedCount = insertStmt |> conn.InsertAsync
-        return insertedCount
+        try 
+            let! insertedCount = insertStmt |> conn.InsertAsync
+            return Ok insertedCount
+        with ex ->
+            return Error ex.Message
+
     }
 
 let selectUser (email : string) (password : string) =
