@@ -68,9 +68,9 @@ let RegisterUserHandler =
             let! insertUserResult = insertUser user
             
             match insertUserResult with
-            | Ok u ->
+            | Ok _ ->
                 let authorizedUser = registerUser user
-                let response : AuthorizedResponse = { User = authorizedUser }
+                let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
                 return! Successful.OK response next ctx
             | Error msg ->
                 let response : ErrorResponse = { Message = msg }
@@ -94,7 +94,7 @@ let AuthenticateUserHandler =
             let! user = selectUser user.Email user.Password
             let authorizedUser = Domain.AuthenticateUser generateToken user
             
-            let response : AuthorizedResponse = { User = authorizedUser }
+            let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
             return! Successful.OK response next ctx
         }
 
@@ -112,7 +112,7 @@ let GetLoggedInUserHandler =
             let! loggedInUser = selectUser user.Identity.Name
             let authorizedUser = buildAuthorizedUser loggedInUser
 
-            let response : AuthorizedResponse = { User = authorizedUser }
+            let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
         
             return! Successful.OK response next ctx
         }
@@ -153,7 +153,7 @@ let webApp =
             ]
         //PUT >=>
         //    choose [
-        //        route "/users" >=> UpdateUserHandler
+        //        route "/users" >=> InsertUserHandlerBuilder
         //    ]
         setStatusCode 404 >=> text "Not Found" ]
 

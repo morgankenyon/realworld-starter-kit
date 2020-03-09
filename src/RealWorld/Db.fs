@@ -19,7 +19,7 @@ type User =
         Id : int
         Email : string
         Username : string
-        Password : string //needs to be hashed, potentially salted
+        Password : string //needs to be hashed and salted
         Bio : string
         Image : string
         Created : DateTime

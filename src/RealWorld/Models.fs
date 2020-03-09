@@ -38,16 +38,22 @@ type RegisterRequest =
         User : UnregisteredUser
     }
 
-[<CLIMutable>]
-type AuthorizedResponse =
-    {
-        User : AuthorizedUser
-    }
+//[<CLIMutable>]
+//type AuthorizedResponse =
+//    {
+//        User : AuthorizedUser
+//    }
 
 [<CLIMutable>]
 type UnauthorizedRequest =
     {
         User : UnauthorizedUser
+    }
+
+[<CLIMutable>]
+type UserResponse<'T> =
+    {
+        User : 'T
     }
 
 [<CLIMutable>]
