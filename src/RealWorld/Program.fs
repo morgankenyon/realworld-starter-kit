@@ -71,9 +71,11 @@ let RegisterUserHandler =
             | Ok _ ->
                 let authorizedUser = registerUser user
                 let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
+                ctx.Response.ContentType <- "application/json"
                 return! Successful.OK response next ctx
             | Error msg ->
                 let response : ErrorResponse = { Message = msg }
+                ctx.Response.ContentType <- "application/json"
                 return! ServerErrors.INTERNAL_ERROR response next ctx
         }
 
@@ -83,19 +85,25 @@ let RegisterUserHandlerBuilder =
 
     RegisterUserHandler insertUser registerUser
 
-
-
 let AuthenticateUserHandler =
-    fun (selectUser : string -> string -> Task<Db.User>) (authenticateUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
+    fun (selectUser : string -> string -> Task<Db.User option>) (authenticateUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
         task {
             let! request = ctx.BindJsonAsync<UserRequest<UnauthorizedUser>>();
             let user = request.User
             
             let! user = selectUser user.Email user.Password
-            let authorizedUser = Domain.AuthenticateUser generateToken user
+
+            match user with
+            | Some u ->
+                let authorizedUser = authenticateUser u
+                let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
+                ctx.Response.ContentType <- "application/json"
+                return! Successful.OK response next ctx
+            | None ->
+                let response : ErrorResponse = { Message = "Could not find user" }
+                ctx.Response.ContentType <- "application/json"
+                return! RequestErrors.BAD_REQUEST response next ctx
             
-            let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
-            return! Successful.OK response next ctx
         }
 
 let AuthenticateUserHandlerBuilder =
@@ -122,16 +130,6 @@ let GetLoggedInUserHandlerBuilder =
     let buildAuthorizedUser = Domain.GetLoggedInUser //terrible name
 
     GetLoggedInUserHandler dbSelect buildAuthorizedUser
-
-
-//let UpdateUserHandler =
-//    fun (next : HttpFunc) (ctx : HttpContext) ->
-//        task {
-//            let! request = ctx.BindJsonAsync<UserRequest<EmailUser>>();
-//            let user = request.User
-
-//            let! 
-//        }
 
 let getUsers () : HttpHandler =
     fun (next : HttpFunc) (ctx : HttpContext) ->

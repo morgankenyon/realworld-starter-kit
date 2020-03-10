@@ -56,8 +56,11 @@ let selectUser (email : string) (password : string) =
 
         let! dbUsers = selectStmt |> conn.SelectAsync<User>
 
-        
-        return dbUsers.First() //do some mapping
+        let firstUser = dbUsers.FirstOrDefault()
+
+        return match box firstUser with 
+        | null -> None 
+        | _ -> Some firstUser
     }
 
 let selectUserByEmail (email : string) =
