@@ -113,21 +113,27 @@ let AuthenticateUserHandlerBuilder =
     AuthenticateUserHandler selectUser authenticateUser
 
 let GetLoggedInUserHandler =
-    fun (selectUser : string -> Task<Db.User>) (buildAuthorizedUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
+    fun (selectUser : string -> Task<Db.User option>) (buildAuthorizedUser : Db.User -> AuthorizedUser) (next : HttpFunc) (ctx : HttpContext) ->
         task {
             let user = ctx.User
 
             let! loggedInUser = selectUser user.Identity.Name
-            let authorizedUser = buildAuthorizedUser loggedInUser
 
-            let response : UserResponse<AuthorizedUser> = { User = authorizedUser }
-        
-            return! Successful.OK response next ctx
+            match loggedInUser with
+            | Some u ->
+                let authorizedUser = buildAuthorizedUser u
+                let response : UserResponse<AuthorizedUser> = { User = authorizedUser }     
+                ctx.Response.ContentType <- "application/json"
+                return! Successful.OK response next ctx
+            | None ->
+                let response : ErrorResponse = { Message = "Could not find user" }
+                ctx.Response.ContentType <- "application/json"
+                return! RequestErrors.BAD_REQUEST response next ctx
         }
 
 let GetLoggedInUserHandlerBuilder =
     let dbSelect = Db.selectUserByEmail
-    let buildAuthorizedUser = Domain.GetLoggedInUser //terrible name
+    let buildAuthorizedUser = Domain.MapDbUser
 
     GetLoggedInUserHandler dbSelect buildAuthorizedUser
 

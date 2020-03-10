@@ -12,6 +12,7 @@ open System.Text
 open Newtonsoft.Json
 open System.IO
 open Giraffe.Serialization
+open System.Security.Principal
 
 let next : HttpFunc = Some >> Task.FromResult
 
@@ -43,6 +44,9 @@ let getPostUser =
     let userRequest : UserRequest<UnregisteredUser> = { User = unauthorizedUser }
     Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(userRequest))
     
+let getDbUser () : Db.User =
+    { Id = 1; Email = "test@gmail.com"; Username = "user"; Password = "pass"; Bio = "biosphere"; Image = "imagging"; Created = DateTime.UtcNow; Updated = DateTime.UtcNow }
+
 let extractBody<'T> context =
     let body = getBody context
     JsonConvert.DeserializeObject<'T>(body)
@@ -153,3 +157,65 @@ let ``AuthenticateUserHandler Fails Correctly``() =
         Assert.NotNull(errorResponse)
         Assert.Equal("Could not find user", errorResponse.Message)
     }
+
+[<Fact>]
+let ``GetLoggedInUserHandler Succeeds``() =
+    let selectUser (_: string) : Task<Db.User option> =
+        task {
+            return Some (getDbUser())
+        }
+
+    let handler = Program.GetLoggedInUserHandler selectUser dbToAuthorizedUser
+    
+    let context = buildMockContext(None)
+    let userToTest = "TestUser"
+    let roles = Array.zeroCreate<string>(0)
+    let fakeIdentity = GenericIdentity(userToTest)
+    let principal = new GenericPrincipal(fakeIdentity, roles)
+    context.User <- principal
+
+    task {
+        let! response = handler next context
+        Assert.True(response.IsSome)
+        let con = response.Value
+        Assert.NotNull(con)
+        Assert.Equal(200, con.Response.StatusCode)
+        Assert.Equal("application/json", con.Response.ContentType)
+        let userResponse = extractBody<UserResponse<AuthorizedUser>> con
+        Assert.NotNull(userResponse)
+        let rUser = userResponse.User
+        Assert.Equal("test@gmail.com", rUser.Email)
+        Assert.Equal("user", rUser.Username)
+        Assert.Equal("biosphere", rUser.Bio)
+        Assert.Equal("imagging", rUser.Image)
+        Assert.Equal("tokenCool", rUser.Token) 
+    }
+
+[<Fact>]
+let ``GetLoggedInUserHandler Fails for Bad User``() =
+    let selectUser (_: string) : Task<Db.User option> =
+        task {
+            return None
+        }
+
+    let handler = Program.GetLoggedInUserHandler selectUser dbToAuthorizedUser
+    
+    let context = buildMockContext(None)
+    let userToTest = "TestUser"
+    let roles = Array.zeroCreate<string>(0)
+    let fakeIdentity = GenericIdentity(userToTest)
+    let principal = new GenericPrincipal(fakeIdentity, roles)
+    context.User <- principal
+    
+    task {
+        let! response = handler next context
+        Assert.True(response.IsSome)
+        let con = response.Value
+        Assert.NotNull(con)
+        Assert.Equal(400, con.Response.StatusCode)
+        Assert.Equal("application/json", con.Response.ContentType)
+        let errorResponse = extractBody<ErrorResponse> con
+        Assert.NotNull(errorResponse)
+        Assert.Equal("Could not find user", errorResponse.Message)
+    }
+    
